@@ -5,10 +5,10 @@ require 'google/api_client/auth/file_storage'
 require 'google/api_client/auth/installed_app'
 require 'sinatra'
 require 'logger'
+require 'base64'
+require 'mail'
 
 enable :sessions
-
-CREDENTIAL_STORE_FILE = "gmail-oauth2.json"
 
 def logger; settings.logger end
 
@@ -40,7 +40,10 @@ before do
   # of the application. This avoids prompting the user for authorization every
   # time the access token expires, by remembering the refresh token.
   # Note: FileStorage is not suitable for multi-user applications.
-  file_storage = Google::APIClient::FileStorage.new(CREDENTIAL_STORE_FILE)
+  secret_file = %(#{request.ip}.json)
+  File.new(secret_file, 'w') unless File.exists?(secret_file)
+  logger.info secret_file
+  file_storage = Google::APIClient::FileStorage.new(secret_file)
   if file_storage.authorization.nil?
     client_secrets = Google::APIClient::ClientSecrets.load
     # The InstalledAppFlow is a helper class to handle the OAuth 2.0 installed
@@ -49,7 +52,7 @@ before do
     flow = Google::APIClient::InstalledAppFlow.new(
       :client_id => client_secrets.client_id,
       :client_secret => client_secrets.client_secret,
-      :scope => ['https://www.googleapis.com/auth/gmail.readonly']
+      :scope => ['https://www.googleapis.com/auth/gmail.compose']
     )
     api_client.authorization = flow.authorize(file_storage)
   else
@@ -57,13 +60,67 @@ before do
   end
 end
 
-get '/' do
+get '/list/:email' do
   # Fetch list of emails on the user's gmail
+  if params[:email]
+    @result = api_client.execute(
+      api_method: gmail_api.users.messages.list,
+      parameters: {
+          userId: params[:email],
+          q: 'from:fairwater@australand.com.au'
+      },
+      headers: {'Content-Type' => 'application/json'}).data
+    @latest = @result.messages.first.id
+    if session[:latest_id]
+      session[:latest_id] = @latest if session[:latest_id] != @latest
+      @message = "New email detected"
+    else
+      session[:latest_id] = @laest
+      @message = "No new email"
+    end
+    erb :index
+  else
+    'Email is required'
+  end
+end
+
+get '/' do
+  'Email is required'
+end
+
+get '/latest/:email' do
+  if session[:latest_id]
+    @result = api_client.execute(
+      api_method: gmail_api.users.messages.get,
+      parameters: {
+          userId: params[:email],
+          id: "14b09a9e0256643b"
+      },
+      headers: {'Content-Type' => 'application/json'})
+    erb :latest
+  else
+    'Please fetch latest email from "/" first'
+  end
+end
+
+get '/send/:email' do
+  msg = Mail.new
+  msg.date = Time.now
+  msg.subject = "Secure your new home today - The Greenbank Collection at Fairwater."
+  msg.body = "I would like to secure an appointment to purchase a new Greenbank Collection\r\nhome at Fairwater:\r\n FIRST NAME : Lecky\r\n LAST NAME : Lao\r\n CONTACT PHONE NUMBER : 0455 069 492\r\n"
+  msg.from = params[:email]
+  msg.to = "leckylao@gmail.com"
+  msg.html_part do
+    body "<div dir=\"ltr\">I would like to secure an appointment to purchase a new Greenbank Collection home at Fairwater:<br>\xC2\xA0 \xC2\xA0 FIRST NAME : Lecky<br>\xC2\xA0 \xC2\xA0 LAST NAME : Lao<br>\xC2\xA0 \xC2\xA0 CONTACT PHONE NUMBER : 0455 069 492<br></div>\r\n"
+  end
   @result = api_client.execute(
-    api_method: gmail_api.users.messages.list,
+    api_method: gmail_api.users.messages.to_h['gmail.users.messages.send'],
     parameters: {
-        userId: "your@gmail.com",
+      userId: params[:email],
+    },
+    body_object: {
+      raw: Base64.urlsafe_encode64(msg.to_s)
     },
     headers: {'Content-Type' => 'application/json'})
-  erb :index
+  erb :send
 end

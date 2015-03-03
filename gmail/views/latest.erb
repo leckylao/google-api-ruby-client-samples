@@ -1,0 +1,4 @@
+<%= @result.data.payload.parts[0].body.data.inspect %>
+<br/>
+<br/>
+<%= Base64.urlsafe_decode64 @result.data.payload.parts[1].body.to_hash["data"] %>
