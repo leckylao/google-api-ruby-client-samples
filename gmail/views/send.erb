@@ -1,3 +1,14 @@
-<%= @result.inspect %>
+Message: <%= @message %>
 <br/>
 <br/>
+Latest: <%= @latest %>
+<br/>
+<br/>
+<% if defined? @msg %>
+  <ul>
+    Parts:
+    <% @msg.parts.each do |part| %>
+      <li><%= part %></li>
+    <% end %>
+  </ul>
+<% end %>

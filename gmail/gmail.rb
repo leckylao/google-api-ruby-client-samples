@@ -7,6 +7,7 @@ require 'sinatra'
 require 'logger'
 require 'base64'
 require 'mail'
+require 'tempfile'
 
 enable :sessions
 
@@ -40,10 +41,12 @@ before do
   # of the application. This avoids prompting the user for authorization every
   # time the access token expires, by remembering the refresh token.
   # Note: FileStorage is not suitable for multi-user applications.
-  secret_file = %(#{request.ip}.json)
-  File.new(secret_file, 'w') unless File.exists?(secret_file)
-  logger.info secret_file
-  file_storage = Google::APIClient::FileStorage.new(secret_file)
+  unless session[:secret]
+    secret_file = %(#{Time.now}.json)
+    session[:secret] = secret_file
+    TempFile.new(secret_file)
+  end
+  file_storage = Google::APIClient::FileStorage.new(session[:secret])
   if file_storage.authorization.nil?
     client_secrets = Google::APIClient::ClientSecrets.load
     # The InstalledAppFlow is a helper class to handle the OAuth 2.0 installed
@@ -75,7 +78,7 @@ get '/list/:email' do
       session[:latest_id] = @latest if session[:latest_id] != @latest
       @message = "New email detected"
     else
-      session[:latest_id] = @laest
+      session[:latest_id] = @latest
       @message = "No new email"
     end
     erb :index
@@ -94,7 +97,7 @@ get '/latest/:email' do
       api_method: gmail_api.users.messages.get,
       parameters: {
           userId: params[:email],
-          id: "14b09a9e0256643b"
+          id: session[:latest_id]
       },
       headers: {'Content-Type' => 'application/json'})
     erb :latest
@@ -104,14 +107,14 @@ get '/latest/:email' do
 end
 
 get '/send/:email' do
-  msg = Mail.new
-  msg.date = Time.now
-  msg.subject = "Secure your new home today - The Greenbank Collection at Fairwater."
-  msg.body = "I would like to secure an appointment to purchase a new Greenbank Collection\r\nhome at Fairwater:\r\n FIRST NAME : Lecky\r\n LAST NAME : Lao\r\n CONTACT PHONE NUMBER : 0455 069 492\r\n"
-  msg.from = params[:email]
-  msg.to = "leckylao@gmail.com"
-  msg.html_part do
-    body "<div dir=\"ltr\">I would like to secure an appointment to purchase a new Greenbank Collection home at Fairwater:<br>\xC2\xA0 \xC2\xA0 FIRST NAME : Lecky<br>\xC2\xA0 \xC2\xA0 LAST NAME : Lao<br>\xC2\xA0 \xC2\xA0 CONTACT PHONE NUMBER : 0455 069 492<br></div>\r\n"
+  @msg = Mail.new
+  @msg.date = Time.now
+  @msg.subject = "Secure your new home today - The Greenbank Collection at Fairwater."
+  @msg.body = "I would like to secure an appointment to purchase a new Greenbank Collection\r\nhome at Fairwater:\r\n FIRST NAME : Lecky\r\n LAST NAME : Lao\r\n CONTACT PHONE NUMBER : 0455 069 492\r\n"
+  @msg.from = params[:email]
+  @msg.to = "leckylao@gmail.com"
+  @msg.html_part do
+    body "<div dir=\"ltr\">I would like to secure an appointment to purchase a new Greenbank Collection home at Fairwater:<br> FIRST NAME : Lecky<br> LAST NAME : Lao<br> CONTACT PHONE NUMBER : 0455 069 492<br></div>\r\n"
   end
   @result = api_client.execute(
     api_method: gmail_api.users.messages.to_h['gmail.users.messages.send'],
@@ -119,8 +122,88 @@ get '/send/:email' do
       userId: params[:email],
     },
     body_object: {
-      raw: Base64.urlsafe_encode64(msg.to_s)
+      raw: Base64.urlsafe_encode64(@msg.to_s)
     },
     headers: {'Content-Type' => 'application/json'})
   erb :send
+end
+
+get '/test/:email' do
+  fetch_and_send(params[:email])
+  erb :send
+end
+
+get '/real/:email' do
+  fetch_and_send(params[:email])
+  erb :send
+end
+
+def text_message(email)
+  if email == 'leckylao@gmail.com'
+    "I would like to secure an appointment to purchase a new Greenbank Collection\r\nhome at Fairwater:\r\n FIRST NAME : Lecky\r\n LAST NAME : Lao\r\n CONTACT PHONE NUMBER : 0455 069 492\r\n"
+  else
+    "Email is required"
+  end
+end
+
+def html_message(email)
+  if email == 'leckylao@gmail.com'
+    "<div dir=\"ltr\">I would like to secure an appointment to purchase a new Greenbank Collection home at Fairwater:<br> FIRST NAME : Lecky<br> LAST NAME : Lao<br> CONTACT PHONE NUMBER : 0455 069 492<br></div>"
+  else
+    "<div dir=\"ltr\">Email is required</div>"
+  end
+end
+
+def fetch_and_send(email)
+  # Fetch list of emails on the user's gmail
+  query = ''
+  if request.path_info =~ /\A\/test\/.*\z/
+    query = 'subject:test'
+  elsif request.path_info =~ /\A\/real\/.*\z/
+    query = 'from:fairwater@australand.com.au'
+  end
+  logger.info "Query: #{query}"
+  logger.info "Email: #{email}"
+  @result = api_client.execute(
+    api_method: gmail_api.users.messages.list,
+    parameters: {
+      userId: email,
+      q: query
+    },
+    headers: {'Content-Type' => 'application/json'}).data
+  logger.info "Result: #{@result.inspect}"
+  if @result.messages.empty?
+    return @message = @result.inspect
+  else
+    @latest = @result.messages.first.id
+  end
+  if session[:latest_id]
+    if session[:latest_id] != @latest
+      session[:latest_id] = @latest
+      @msg = Mail.new
+      @msg.date = Time.now
+      @msg.subject = "Secure your new home today - The Greenbank Collection at Fairwater."
+      @msg.body = text_message(email)
+      @msg.from = email
+      @msg.to = email
+      @msg.html_part do
+        body html_message(email)
+      end
+      @result = api_client.execute(
+        api_method: gmail_api.users.messages.to_h['gmail.users.messages.send'],
+        parameters: {
+          userId: email,
+        },
+        body_object: {
+          raw: Base64.urlsafe_encode64(@msg.to_s)
+        },
+        headers: {'Content-Type' => 'application/json'})
+      @message = "Email sent successfully"
+    else
+      @message = "No new email"
+    end
+  else
+    session[:latest_id] = @latest
+    @message = "Latest email stored"
+  end
 end
