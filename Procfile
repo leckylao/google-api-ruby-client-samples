@@ -1,1 +1,1 @@
-web: ruby gmail/gmail.rb
+web: bundle exec rackup -p 4567 config.ru
