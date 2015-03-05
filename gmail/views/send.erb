@@ -12,3 +12,16 @@ Latest: <%= @latest %>
     <% end %>
   </ul>
 <% end %>
+<% if params[:status] == 'started' %>
+  <h2>Close window to stop</h2>
+<% else %>
+  <form action="<%= request.url %>" method="get">
+    <input type="hidden" name="status" value="started" />
+    <input type="submit" value="Start">
+  </form>
+<% end %>
+<script type="text/javascript" charset="utf-8">
+  if(location.search === '?status=started'){
+    window.location = location.href;
+  }
+</script>

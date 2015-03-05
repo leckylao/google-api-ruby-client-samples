@@ -41,10 +41,13 @@ before do
   # of the application. This avoids prompting the user for authorization every
   # time the access token expires, by remembering the refresh token.
   # Note: FileStorage is not suitable for multi-user applications.
-  unless session[:secret]
+  if session[:secret]
+    logger.info %(Secret: #{session[:secret]})
+  else
     secret_file = %(#{Time.now}.json)
     session[:secret] = secret_file
     Tempfile.new(secret_file)
+    logger.info %(New Secret: #{session[:secret]})
   end
   file_storage = Google::APIClient::FileStorage.new(session[:secret])
   if file_storage.authorization.nil?
@@ -55,7 +58,7 @@ before do
     flow = Google::APIClient::InstalledAppFlow.new(
       :client_id => client_secrets.client_id,
       :client_secret => client_secrets.client_secret,
-      :scope => ['https://www.googleapis.com/auth/gmail.compose']
+      :scope => ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose']
     )
     api_client.authorization = flow.authorize(file_storage)
   else
@@ -185,7 +188,11 @@ def fetch_and_send(email)
       @msg.subject = "Secure your new home today - The Greenbank Collection at Fairwater."
       @msg.body = text_message(email)
       @msg.from = email
-      @msg.to = email
+      if request.path_info =~ /\A\/test\/.*\z/
+        @msg.to = email
+      elsif request.path_info =~ /\A\/real\/.*\z/
+        @msg.to = 'fairwater@australand.com.au'
+      end
       @msg.html_part do
         body html_message(email)
       end
