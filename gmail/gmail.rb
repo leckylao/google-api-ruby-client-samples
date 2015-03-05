@@ -44,7 +44,7 @@ before do
   unless session[:secret]
     secret_file = %(#{Time.now}.json)
     session[:secret] = secret_file
-    TempFile.new(secret_file)
+    Tempfile.new(secret_file)
   end
   file_storage = Google::APIClient::FileStorage.new(session[:secret])
   if file_storage.authorization.nil?
