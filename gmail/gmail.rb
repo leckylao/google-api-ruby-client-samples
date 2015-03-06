@@ -34,7 +34,7 @@ configure do
   set :gmail, gmail
 end
 
-before do
+before '/list/*' do
   # Ensure user has authorized the app
   # redirect user_credentials.authorization_uri.to_s, 303
   # FileStorage stores auth credentials in a file, so they survive multiple runs
@@ -132,20 +132,29 @@ get '/send/:email' do
 end
 
 get '/test/:email' do
-  fetch_and_send(params[:email])
-  erb :send
+  # fetch_and_send(params[:email])
+  # erb :send
+  logger.info "Email: #{params[:email]}"
+  @msg = generate_mail(params[:email])
+  @raw = Base64.urlsafe_encode64(@msg.to_s)
+  erb :js
 end
 
 get '/real/:email' do
-  fetch_and_send(params[:email])
-  erb :send
+  # fetch_and_send(params[:email])
+  # erb :send
+  logger.info "Email: #{params[:email]}"
+  @msg = generate_mail(params[:email])
+  @raw = Base64.urlsafe_encode64(@msg.to_s)
+  erb :js
 end
 
 def text_message(email)
   if email == 'leckylao@gmail.com'
     "I would like to secure an appointment to purchase a new Greenbank Collection\r\nhome at Fairwater:\r\n FIRST NAME : Lecky\r\n LAST NAME : Lao\r\n CONTACT PHONE NUMBER : 0455 069 492\r\n"
   else
-    "Email is required"
+    "I would like to secure an appointment to purchase a new Greenbank Collection\r\nhome at Fairwater:\r\n FIRST NAME : Jiasheng\r\n LAST NAME : Sun\r\n CONTACT PHONE NUMBER : 0410 908 115\r\n"
+    # "Email is required"
   end
 end
 
@@ -153,7 +162,8 @@ def html_message(email)
   if email == 'leckylao@gmail.com'
     "<div dir=\"ltr\">I would like to secure an appointment to purchase a new Greenbank Collection home at Fairwater:<br> FIRST NAME : Lecky<br> LAST NAME : Lao<br> CONTACT PHONE NUMBER : 0455 069 492<br></div>"
   else
-    "<div dir=\"ltr\">Email is required</div>"
+    "<div dir=\"ltr\">I would like to secure an appointment to purchase a new Greenbank Collection home at Fairwater:<br> FIRST NAME : Jiasheng<br> LAST NAME : Sun<br> CONTACT PHONE NUMBER : 0410 908 115<br></div>"
+    # "<div dir=\"ltr\">Email is required</div>"
   end
 end
 
@@ -183,19 +193,7 @@ def fetch_and_send(email)
   if session[:latest_id]
     if session[:latest_id] != @latest
       session[:latest_id] = @latest
-      @msg = Mail.new
-      @msg.date = Time.now
-      @msg.subject = "Secure your new home today - The Greenbank Collection at Fairwater."
-      @msg.body = text_message(email)
-      @msg.from = email
-      if request.path_info =~ /\A\/test\/.*\z/
-        @msg.to = email
-      elsif request.path_info =~ /\A\/real\/.*\z/
-        @msg.to = 'fairwater@australand.com.au'
-      end
-      @msg.html_part do
-        body html_message(email)
-      end
+      @msg = generate_mail(email)
       @result = api_client.execute(
         api_method: gmail_api.users.messages.to_h['gmail.users.messages.send'],
         parameters: {
@@ -213,4 +211,22 @@ def fetch_and_send(email)
     session[:latest_id] = @latest
     @message = "Latest email stored"
   end
+end
+
+def generate_mail(email)
+  msg = Mail.new
+  msg.date = Time.now
+  msg.subject = "Secure your new home today - The Greenbank Collection at Fairwater."
+  msg.body = text_message(email)
+  msg.from = email
+  logger.info "path: #{request.path_info}"
+  if request.path_info =~ /\A\/test\/.*\z/
+   msg.to = email
+  elsif request.path_info =~ /\A\/real\/.*\z/
+   msg.to = 'fairwater@australand.com.au'
+  end
+  msg.html_part do
+    body html_message(email)
+  end
+  msg
 end
